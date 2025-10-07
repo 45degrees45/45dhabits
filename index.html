@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Calm Tracker</title>
+<title>Calm Tracker – 21-Day Challenge</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#1e1e2f">
 <style>
@@ -16,6 +16,13 @@ section{padding:1rem}
 .habit span{flex:1}
 .habit.done span{color:var(--done);text-decoration:line-through}
 button{border:none;background:var(--accent);color:#fff;padding:.6rem 1.2rem;border-radius:6px;font-size:1rem;cursor:pointer}
+dialog{border:none;border-radius:8px;padding:1rem;max-width:90vw}
+#tmplList{display:grid;gap:.6rem;margin:.8rem 0}
+.tmpl-card{border:1px solid #ccc;border-radius:6px;padding:.8rem;cursor:pointer}
+.tmpl-card.selected{border-color:var(--accent);background:#f0f0ff}
+#ribbon{position:sticky;top:0;background:var(--bg);padding:.5rem 1rem;border-bottom:1px solid #ddd;font-size:.9rem;display:none}
+#ribbon>div{background:#eee;height:6px;border-radius:3px;margin-top:4px}
+#bar{background:var(--done);height:100%;width:0%;transition:width .3s}
 #focusScreen{position:fixed;inset:0;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;opacity:0;pointer-events:none;transition:opacity .6s}
 #focusScreen.active{opacity:1;pointer-events:all}
 #focusScreen h2{font-weight:300;font-size:3rem;margin:.2rem 0}
@@ -27,10 +34,15 @@ button{border:none;background:var(--accent);color:#fff;padding:.6rem 1.2rem;bord
 <body>
 <header>Calm Tracker</header>
 
+<div id="ribbon">
+  <span id="left"></span> days left · <span id="pct"></span>% done
+  <div><div id="bar"></div></div>
+</div>
+
 <section id="habitsSec">
-  <h3>Today</h3>
+  <h3 id="secTitle">Today</h3>
   <div id="habits"></div>
-  <button onclick="addHabit()">+ Add habit</button>
+  <button id="addBtn" onclick="addHabit()">+ Add habit</button>
 </section>
 
 <section>
@@ -39,6 +51,13 @@ button{border:none;background:var(--accent);color:#fff;padding:.6rem 1.2rem;bord
   <button onclick="startFocus()">Start focus</button>
 </section>
 
+<dialog id="tmplDlg">
+  <h3>Choose 21-day challenge</h3>
+  <div id="tmplList"></div>
+  <button id="startBtn">Start</button>
+  <button onclick="tmplDlg.close()">Cancel</button>
+</dialog>
+
 <div id="focusScreen">
   <small>Focus until</small>
   <h2 id="timer">25:00</h2>
@@ -46,66 +65,118 @@ button{border:none;background:var(--accent);color:#fff;padding:.6rem 1.2rem;bord
 </div>
 
 <script>
-/* ---------- habits with timestamp ---------- */
-const STORAGE_KEY="calmTracker";
-const DEFAULT=["Drink 2 L water","10 min stretch","Read 5 pages"];
-let habits=JSON.parse(localStorage.getItem(STORAGE_KEY))||DEFAULT;
-const todayKey="calmDone_"+new Date().toLocaleDateString();
-let done=JSON.parse(localStorage.getItem(todayKey))||{};
+/* ---------- CONFIG ---------- */
+const TEMPLATES = {
+  if:   {name:"Intermittent Fasting 16/8", habits:["Fast 16 h","Eat 8 h window","Zero-cal drinks only"]},
+  cold: {name:"Contrast Therapy", habits:["Sauna 15 min","Cold shower 2 min","3 rounds total"]},
+  sleep:{name:"Sleep Cave", habits:["Lights off 23:00","Screens off 60 min pre-bed","Room 18 °C"]},
+  steps:{name:"10 k Steps", habits:["8 k steps before 18:00","Movement snack hourly","Sunlight 10 min morning"]}
+};
+const STORAGE_KEY = 'habits';
+const CHAL_KEY    = 'chal';
+const dayNo       = d=>Math.floor(d/8.64e7);
+const todayKey    = 'calmDone_'+new Date().toLocaleDateString();
 
+let habits, done, chal;
+
+/* ---------- CHALLENGE ENGINE ---------- */
+function initChallenge(){
+  chal = JSON.parse(localStorage.getItem(CHAL_KEY)||'null');
+  const now = dayNo(new Date());
+  if(chal && now-chal.startDay<21) return loadChallenge(chal);
+  if(chal && now-chal.startDay>=21) return archiveAndReset();
+  showTmplPicker();
+}
+function loadChallenge(c){
+  habits = [...c.habits];
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(habits));
+  done = JSON.parse(localStorage.getItem(todayKey)||'{}');
+  render(); showRibbon(c);
+  document.getElementById('addBtn').disabled=true;
+  document.getElementById('secTitle').textContent='21-Day Challenge';
+}
+function showRibbon(c){
+  const left=21-(dayNo(new Date())-c.startDay);
+  const pct=Math.round(countDoneDays(c.startDay,dayNo(new Date()))/21*100);
+  document.getElementById('left').textContent=left;
+  document.getElementById('pct').textContent=pct;
+  document.getElementById('bar').style.width=pct+'%';
+  document.getElementById('ribbon').style.display='block';
+}
+function countDoneDays(s,e){
+  let cnt=0;
+  for(let d=s;d<=e;d++){
+    const dayDone=JSON.parse(localStorage.getItem('calmDone_'+new Date(d*8.64e7).toLocaleDateString())||'{}');
+    if(Object.keys(dayDone).length===habits.length) cnt++;
+  }return cnt;
+}
+function archiveAndReset(){
+  const archive=JSON.parse(localStorage.getItem('archive')||'[]');
+  archive.push({...chal,endDay:dayNo(new Date())});
+  localStorage.setItem('archive',JSON.stringify(archive));
+  localStorage.removeItem(CHAL_KEY);
+  location.reload();
+}
+function showTmplPicker(){
+  const dlg=document.getElementById('tmplDlg');
+  const list=document.getElementById('tmplList');
+  list.innerHTML='';
+  Object.entries(TEMPLATES).forEach(([id,t])=>{
+    const card=document.createElement('div');card.className='tmpl-card';card.textContent=t.name;
+    card.onclick=()=>{document.querySelectorAll('.tmpl-card').forEach(c=>c.classList.remove('selected'));card.classList.add('selected');card.dataset.id=id;};
+    list.appendChild(card);
+  });
+  document.getElementById('startBtn').onclick=()=>{
+    const sel=document.querySelector('.tmpl-card.selected'); if(!sel)return;
+    startChallenge(sel.dataset.id); dlg.close();
+  };
+  dlg.showModal();
+}
+function startChallenge(id){
+  const t=TEMPLATES[id];
+  const c={templateId:id,startDay:dayNo(new Date()),habits:t.habits};
+  localStorage.setItem(CHAL_KEY,JSON.stringify(c));
+  loadChallenge(c);
+}
+
+/* ---------- HABIT LIST ---------- */
 function render(){
-  const box=document.getElementById("habits");
-  box.innerHTML="";
-  const todayData=done;
+  const box=document.getElementById('habits');
+  box.innerHTML='';
   habits.forEach((h,i)=>{
-    const div=document.createElement("div");div.className="habit";
-    if(todayData[i])div.classList.add("done");
-
-    const chk=document.createElement("input");chk.type="checkbox";
-    chk.checked=!!todayData[i];
-    chk.onchange=()=>toggle(i);
-
-    const sp=document.createElement("span");sp.textContent=h;
-
-    const time=document.createElement("small");
-    time.style.marginLeft="auto";time.style.opacity=".6";
-    time.textContent=todayData[i]?new Date(todayData[i]).toLocaleTimeString():"";
-
+    const div=document.createElement('div');div.className='habit';
+    if(done[i])div.classList.add('done');
+    const chk=document.createElement('input');chk.type='checkbox';chk.checked=!!done[i];
+    chk.onchange=()=>{if(done[i])delete done[i];else done[i]=new Date().toISOString();localStorage.setItem(todayKey,JSON.stringify(done));render();};
+    const sp=document.createElement('span');sp.textContent=h;
+    const time=document.createElement('small');time.style.marginLeft='auto';time.style.opacity='.6';time.textContent=done[i]?new Date(done[i]).toLocaleTimeString():'';
     div.append(chk,sp,time);box.appendChild(div);
   });
 }
-function toggle(i){
-  if(done[i])delete done[i];else done[i]=new Date().toISOString();
-  localStorage.setItem(todayKey,JSON.stringify(done));
-  render();
-}
-function addHabit(){
-  const n=prompt("New habit:");
-  if(n){habits.push(n);localStorage.setItem(STORAGE_KEY,JSON.stringify(habits));render();}
-}
-render();
+window.addHabit=()=>alert('Challenge habits are locked for 21 days.');
 
-/* ---------- focus timer ---------- */
+/* ---------- FOCUS TIMER ---------- */
 let focusMins=25,interval;
 function startFocus(){
-  document.getElementById("focusScreen").classList.add("active");
+  document.getElementById('focusScreen').classList.add('active');
   let t=focusMins*60;
   interval=setInterval(()=>{
     t--;
     const m=String(Math.floor(t/60)).padStart(2,0);
     const s=String(t%60).padStart(2,0);
-    document.getElementById("timer").textContent=`${m}:${s}`;
+    document.getElementById('timer').textContent=`${m}:${s}`;
     if(t<=0)endFocus();
   },1000);
-  if("Notification"in window&&Notification.permission!=="granted")Notification.requestPermission();
+  if('Notification'in window&&Notification.permission!=='granted')Notification.requestPermission();
 }
 function endFocus(){
   clearInterval(interval);
-  document.getElementById("focusScreen").classList.remove("active");
-  if("Notification"in window&&Notification.permission==="granted"){
-    new Notification("Calm Tracker",{body:"Focus session finished. Nice work."});
-  }
+  document.getElementById('focusScreen').classList.remove('active');
+  if('Notification'in window&&Notification.permission==='granted')new Notification('Calm Tracker',{body:'Focus session finished. Nice work.'});
 }
+
+/* ---------- BOOT ---------- */
+initChallenge();
 </script>
 </body>
 </html>
