@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Calm Tracker</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1e1e2f">
+<style>
+:root{--bg:#fdfdfd;--fg:#222;--accent:#6c5ce7;--done:#00b894}
+*{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{margin:0;padding:0;background:var(--bg);color:var(--fg)}
+header{padding:1.2rem 1rem;font-size:1.4rem;font-weight:600;border-bottom:1px solid #eee}
+section{padding:1rem}
+.habit{display:flex;align-items:center;padding:.6rem 0;border-bottom:1px solid #f2f2f2}
+.habit input{width:20px;height:20px;margin-right:.8rem;accent-color:var(--accent)}
+.habit span{flex:1}
+.habit.done span{color:var(--done);text-decoration:line-through}
+button{border:none;background:var(--accent);color:#fff;padding:.6rem 1.2rem;border-radius:6px;font-size:1rem;cursor:pointer}
+#focusScreen{position:fixed;inset:0;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;opacity:0;pointer-events:none;transition:opacity .6s}
+#focusScreen.active{opacity:1;pointer-events:all}
+#focusScreen h2{font-weight:300;font-size:3rem;margin:.2rem 0}
+#focusScreen small{opacity:.6}
+#focusScreen button{background:#eee;color:#111;margin-top:1.5rem}
+@media (prefers-color-scheme:dark){:root{--bg:#1e1e2f;--fg:#eee}header{border-color:#333}.habit{border-color:#2a2a3c}}
+</style>
+</head>
+<body>
+<header>Calm Tracker</header>
+
+<section id="habitsSec">
+  <h3>Today</h3>
+  <div id="habits"></div>
+  <button onclick="addHabit()">+ Add habit</button>
+</section>
+
+<section>
+  <h3>Graceful focus</h3>
+  <p>25-min deep-work session. Notifications silenced.</p>
+  <button onclick="startFocus()">Start focus</button>
+</section>
+
+<div id="focusScreen">
+  <small>Focus until</small>
+  <h2 id="timer">25:00</h2>
+  <button onclick="endFocus()">End early</button>
+</div>
+
+<script>
+/* ---------- habits with timestamp ---------- */
+const STORAGE_KEY="calmTracker";
+const DEFAULT=["Drink 2 L water","10 min stretch","Read 5 pages"];
+let habits=JSON.parse(localStorage.getItem(STORAGE_KEY))||DEFAULT;
+const todayKey="calmDone_"+new Date().toLocaleDateString();
+let done=JSON.parse(localStorage.getItem(todayKey))||{};
+
+function render(){
+  const box=document.getElementById("habits");
+  box.innerHTML="";
+  const todayData=done;
+  habits.forEach((h,i)=>{
+    const div=document.createElement("div");div.className="habit";
+    if(todayData[i])div.classList.add("done");
+
+    const chk=document.createElement("input");chk.type="checkbox";
+    chk.checked=!!todayData[i];
+    chk.onchange=()=>toggle(i);
+
+    const sp=document.createElement("span");sp.textContent=h;
+
+    const time=document.createElement("small");
+    time.style.marginLeft="auto";time.style.opacity=".6";
+    time.textContent=todayData[i]?new Date(todayData[i]).toLocaleTimeString():"";
+
+    div.append(chk,sp,time);box.appendChild(div);
+  });
+}
+function toggle(i){
+  if(done[i])delete done[i];else done[i]=new Date().toISOString();
+  localStorage.setItem(todayKey,JSON.stringify(done));
+  render();
+}
+function addHabit(){
+  const n=prompt("New habit:");
+  if(n){habits.push(n);localStorage.setItem(STORAGE_KEY,JSON.stringify(habits));render();}
+}
+render();
+
+/* ---------- focus timer ---------- */
+let focusMins=25,interval;
+function startFocus(){
+  document.getElementById("focusScreen").classList.add("active");
+  let t=focusMins*60;
+  interval=setInterval(()=>{
+    t--;
+    const m=String(Math.floor(t/60)).padStart(2,0);
+    const s=String(t%60).padStart(2,0);
+    document.getElementById("timer").textContent=`${m}:${s}`;
+    if(t<=0)endFocus();
+  },1000);
+  if("Notification"in window&&Notification.permission!=="granted")Notification.requestPermission();
+}
+function endFocus(){
+  clearInterval(interval);
+  document.getElementById("focusScreen").classList.remove("active");
+  if("Notification"in window&&Notification.permission==="granted"){
+    new Notification("Calm Tracker",{body:"Focus session finished. Nice work."});
+  }
+}
+</script>
+</body>
+</html>
